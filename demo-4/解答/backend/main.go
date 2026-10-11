@@ -122,6 +122,7 @@ func HandleSSEOption(w http.ResponseWriter, r *http.Request) {
 }
 
 func HandleSSE(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	decoder := json.NewDecoder(r.Body)
 	var req SSERequest
 	err := decoder.Decode(&req)
@@ -129,7 +130,6 @@ func HandleSSE(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Cache-Control", "no-cache")

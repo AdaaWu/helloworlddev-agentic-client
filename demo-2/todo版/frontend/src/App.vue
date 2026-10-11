@@ -11,6 +11,7 @@
 const startEvent = async (): Promise<void> => {
   // TODO: 從這裡開始實作
   // 提示 : 這裡我們要用 fetch API 所以先把 fetch 搞出來
+  // 注意注意！！這裡記得 method 要用 POST (後端的部分有幫你把 method 改為 POST 了!!)
   // 提示2 : 我們常用 response.json() 去處理 json
   // 但我們這裡不會用它，要處理 response.body
   // response.body.getReader() 可以取得 ReadableStream 的東東，就說到這了
