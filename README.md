@@ -32,6 +32,23 @@ Vue 的部分(前端) : 整理改為 fetch 的資料處理問題
 
 Golang 的部分(後端) : 後端改用 `AgentStep` 的方式把訊息傳出去
 
+## demo-5 : 完整的 Agent Timeline（展示用，只有解答）
+
+> objective : 把前面的內容組合成一個完整的 Agent 前端
+
+1. Golang 的部分(後端) : mock LLM 三種 scenario（`search_and_calc`、`multi_tool`、`error_retry`），事件改成 `thinking / tool_call / tool_result / text / error / done`，data 改成 JSON，支援 `resumeFrom` 從指定 step 重跑
+2. Vue 的部分(前端) :
+    - `AgentEvent` / `AgentStep` discriminated union + `assertNever` 窮舉檢查
+    - 符合 SSE 規格的 parser（註解行、未知欄位、`\r\n`、結尾剩餘 buffer）
+    - text token 以 16ms throttle 合批更新（畫面上可以切換開關、比較 re-render 次數）
+    - `AgentTimeline` 元件 : 每種 step 一個 template 分支、閃爍游標、工具 spinner、錯誤狀態
+    - `AbortController` : 「停止」按鈕或 `Ctrl+C` 取消問答，依 `retryable` 決定能否重試，並從指定 step 恢復
+
+```sh
+curl -N http://localhost:8080/sse -X POST -d '{"message":"Hi","scenario":"error_retry"}'
+curl -N http://localhost:8080/sse -X POST -d '{"message":"Hi","scenario":"error_retry","resumeFrom":"s4"}'
+```
+
 ## 常見指令
 
 
