@@ -261,10 +261,6 @@
 .input-button:active {
   transform: translateY(2px);
 }
-.input-sample {
-  padding: 1rem 1.25rem;
-  width: 80vw;
-}
 .chat {
   display: flex;
   flex-direction: column;

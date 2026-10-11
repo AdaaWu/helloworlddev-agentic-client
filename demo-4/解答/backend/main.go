@@ -17,7 +17,7 @@ func HandleRoot(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	err := encoder.Encode(map[string]string{
-		"message": "hello world dev",
+		"message": "Hello World Dev",
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -94,7 +94,7 @@ func (s *SSEWriter) SendAgentStep(event, message string, delay time.Duration) er
 	for i, token := range tokens {
 		sseEvent := SSEEvent{
 			ID:    strconv.Itoa(i),
-			Event: "message",
+			Event: event,
 			Data:  token,
 		}
 		err := s.send(sseEvent)

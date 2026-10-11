@@ -91,7 +91,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	rc.Flush()
 
-	ctx := r.Context()
+	// ctx := r.Context()
 
 	// 這個用不到了 -> 我幫你註解了 😊
 	// ticker := time.NewTicker(1 * time.Second)
