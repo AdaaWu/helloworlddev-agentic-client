@@ -7,6 +7,10 @@ const startEvent = async (): Promise<void> => {
       'Accept': 'text/event-stream',
     }
   });
+  if (!response.ok) {
+    console.log('不 ok');
+    return;
+  }
   const body = response.body;
   if (!body) {
     console.log('body null');

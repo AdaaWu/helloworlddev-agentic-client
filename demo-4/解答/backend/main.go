@@ -28,7 +28,7 @@ type SSERequest struct {
 	Message string `json:"message"`
 }
 
-type SSEEvet struct {
+type SSEEvent struct {
 	ID    string `json:"id"`
 	Event string `json:"event"`
 	Data  string `json:"data"`
@@ -40,7 +40,7 @@ type SSEWriter struct {
 	rc  *http.ResponseController
 }
 
-func formatEvent(ev SSEEvet) string {
+func formatEvent(ev SSEEvent) string {
 	var b strings.Builder
 	newLine := "\n"
 	if ev.ID != "" {
@@ -51,7 +51,7 @@ func formatEvent(ev SSEEvet) string {
 		b.WriteString("event: " + ev.Event + newLine)
 	}
 	for _, line := range strings.Split(ev.Data, "\n") {
-		b.WriteString("data : " + line + newLine)
+		b.WriteString("data: " + line + newLine)
 	}
 	b.WriteString(newLine)
 	return b.String()
@@ -85,14 +85,14 @@ func (s *SSEWriter) write(msg string) error {
 	return s.rc.Flush()
 }
 
-func (s *SSEWriter) send(ev SSEEvet) error {
+func (s *SSEWriter) send(ev SSEEvent) error {
 	return s.write(formatEvent(ev))
 }
 
 func (s *SSEWriter) SendAgentStep(event, message string, delay time.Duration) error {
 	tokens := tokenize(message, 1)
 	for i, token := range tokens {
-		sseEvent := SSEEvet{
+		sseEvent := SSEEvent{
 			ID:    strconv.Itoa(i),
 			Event: "message",
 			Data:  token,
@@ -106,12 +106,19 @@ func (s *SSEWriter) SendAgentStep(event, message string, delay time.Duration) er
 			return err
 		}
 	}
-	sseEvent := SSEEvet{
+	sseEvent := SSEEvent{
 		ID:    strconv.Itoa(len(tokens)),
 		Event: "done",
 		Data:  "finish!",
 	}
 	return s.send(sseEvent)
+}
+
+func HandleSSEOption(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, POST")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func HandleSSE(w http.ResponseWriter, r *http.Request) {
@@ -122,10 +129,10 @@ func HandleSSE(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	rc := http.NewResponseController(w)
 
@@ -138,11 +145,12 @@ func HandleSSE(w http.ResponseWriter, r *http.Request) {
 		w:   w,
 		rc:  rc,
 	}
-	message := fmt.Sprintf("收到的訊息 :%s", req.Message)
+	message := fmt.Sprintf("收到的訊息 : %s", req.Message)
 
 	err = sseWriter.SendAgentStep("message", message, 80*time.Millisecond)
 	if err != nil {
-		http.Error(w, "Invalid AgentMessage", http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf("event: error\ndata: %s\n\n", err.Error())))
+		rc.Flush()
 		return
 	}
 }
@@ -150,6 +158,7 @@ func HandleSSE(w http.ResponseWriter, r *http.Request) {
 func main() {
 	router := http.NewServeMux()
 	router.HandleFunc("GET /", HandleRoot)
+	router.HandleFunc("OPTIONS /sse", HandleSSEOption)
 	router.HandleFunc("POST /sse", HandleSSE)
 
 	server := &http.Server{

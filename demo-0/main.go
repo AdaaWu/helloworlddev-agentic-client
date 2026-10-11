@@ -9,14 +9,19 @@ import (
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
 	encoder := json.NewEncoder(w)
-	encoder.Encode(map[string]string{
+
+	w.Header().Set("Content-Type", "application/json")
+	err := encoder.Encode(map[string]string{
 		"message": "Hello World Dev",
 	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func main() {
 	router := http.NewServeMux()
-	router.HandleFunc("GET /", handleRoot)
+	router.HandleFunc("GET /{$}", handleRoot)
 	fmt.Println("run on http://localhost:8080")
 	server := &http.Server{
 		Addr:    ":8080",

@@ -123,10 +123,15 @@
       method: 'POST',
       headers: {
         'Accept': "text/event-stream",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(req),
     });
 
+    if (!response.ok) {
+      console.log('不ok');
+      return;
+    }
     const body = response.body;
     if (!body) {
       console.error('body null');

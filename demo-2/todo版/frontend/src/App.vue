@@ -15,7 +15,7 @@ const startEvent = async (): Promise<void> => {
   // 但我們這裡不會用它，要處理 response.body
   // response.body.getReader() 可以取得 ReadableStream 的東東，就說到這了
   // 提示 3 : 因為 Stream 過來是 uint8Array 也可以理解為 binary 所以我們需要 decode 它才能正常顯示
-  // decode  可以用 new TextDecoder('utf-8') 處理: 參考 -> https://developer.mozilla.org/zh-CN/docs/Web/API/TextDecoder
+  // decode 可以用 new TextDecoder('utf-8') 處理: 參考 -> https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder
   // 記得結尾要 releaseLock
   // 加油 GoGo 🏃
 }

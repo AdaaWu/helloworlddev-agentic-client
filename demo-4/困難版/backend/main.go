@@ -14,6 +14,13 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func HandleSSEOption(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, POST")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Connection", "keep-alive")
@@ -24,7 +31,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	rc.Flush()
 
-	ctx := r.Context()
+	// ctx := r.Context()
 
 	// 這段不需要了
 	// ticker := time.NewTicker(1 * time.Second)
@@ -49,6 +56,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 func main() {
 	router := http.NewServeMux()
 	router.HandleFunc("GET /", handleRoot)
+	router.HandleFunc("OPTIONS /sse", HandleSSEOption)
 	router.HandleFunc("POST /sse", handleSSE) // 我幫你改成 POST 了 😊
 	fmt.Println("run on http://localhost:8080/sse")
 	server := &http.Server{
