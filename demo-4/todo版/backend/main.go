@@ -57,6 +57,7 @@ func FormatEvent(ev SSEEvent) string {
 	return b.String()
 }
 
+// 這個可以把要傳的 string 化成 string array
 func tokenize(text string, size int) []string {
 	runes := []rune(text)
 	result := make([]string, 0, len(text)/size+1)

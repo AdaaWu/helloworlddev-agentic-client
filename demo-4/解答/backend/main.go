@@ -72,7 +72,7 @@ func tokenize(text string, size int) []string {
 	runes := []rune(text)
 	result := make([]string, 0, len(runes)/size+1)
 	for i := 0; i < len(runes); i += size {
-		result = append(result, string(runes[i:min(i+size, len(text))]))
+		result = append(result, string(runes[i:min(i+size, len(runes))]))
 	}
 	return result
 }
