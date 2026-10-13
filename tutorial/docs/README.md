@@ -41,6 +41,30 @@
 - 驗收：go vet ./... 與 go build 皆通過
 - 卡點：Go 低於 1.27 會自動下載 toolchain，網路慢會卡住
 
+**關鍵程式碼**
+
+```sh
+cd tutorial/01-get-sse/backend
+go mod init tutorial
+```
+
+`tutorial/01-get-sse/backend/go.mod`
+
+```text
+module tutorial
+
+go 1.27.1
+```
+
+`tutorial/01-get-sse/backend/main.go`
+
+```go
+package main
+
+func main() {
+}
+```
+
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/e32050b4cc4c037aa4b0cdeb2958e44a83e19663)
 
 ---
@@ -54,6 +78,24 @@
 - 重點：App.vue 只留空的 script setup 與 template
 - 驗收：bun install 後 bun run build 通過
 - 卡點：資料夾沒有 node_modules，要先 bun install 才能 dev
+
+**關鍵程式碼**
+
+```sh
+cd tutorial/01-get-sse
+bun create vite frontend --template vue-ts
+cd frontend && bun install
+```
+
+`tutorial/01-get-sse/frontend/src/App.vue`
+
+```vue
+<script setup lang="ts">
+</script>
+
+<template>
+</template>
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/99965bb016db56c80d382ddded6f6b3d7ac49dad)
 
@@ -70,6 +112,37 @@
 - 驗收：curl -i localhost:8081/abc 回 404
 - 卡點：{$} 只匹配根路徑，少了它會吃掉所有路徑
 - 卡點：本機 8080 被占用，全程改用 8081
+
+**關鍵程式碼**
+
+`tutorial/01-get-sse/backend/main.go`
+
+```go
+func handleRoot(w http.ResponseWriter, r *http.Request) {
+	encoder := json.NewEncoder(w)
+
+	w.Header().Set("Content-Type", "application/json")
+	err := encoder.Encode(map[string]string{
+		"message": "Hello World Dev",
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+```
+
+```go
+func main() {
+	router := http.NewServeMux()
+	router.HandleFunc("GET /{$}", handleRoot)
+	fmt.Println("run on http://localhost:8081")
+	server := &http.Server{
+		Addr:    ":8081",
+		Handler: router,
+	}
+	// ...
+}
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/7e219a73fbc739f9412086a9705d04a093722d6f)
 
@@ -89,6 +162,39 @@
 - 卡點：結尾要兩個換行，不然 EventSource 不觸發
 - 卡點：curl 沒加 -N 會被 buffer 擋住看不出串流
 
+**關鍵程式碼**
+
+`tutorial/01-get-sse/backend/main.go`
+
+```go
+func handleSSE(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	rc := http.NewResponseController(w)
+	w.WriteHeader(http.StatusOK)
+	rc.Flush()
+	// ...
+}
+```
+
+```go
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("使用者斷開")
+			return
+		case t := <-ticker.C:
+			rawMessage := t.Format(time.RFC3339)
+			message := fmt.Sprintf("event: message\ndata: %s\n\n", rawMessage)
+			w.Write([]byte(message))
+			rc.Flush()
+		}
+	}
+```
+
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/48cce444f46ad1d6d9ecd50f718a24413815a170)
 
 ---
@@ -105,6 +211,20 @@
 - 卡點：畫面空白是正常，要開 DevTools 看 Console
 - 卡點：CORS 報錯代表後端少了 Allow-Origin
 
+**關鍵程式碼**
+
+`tutorial/01-get-sse/frontend/src/App.vue`
+
+```ts
+const API_BASE = 'http://localhost:8081';
+
+const sse = new EventSource(`${API_BASE}/sse`);
+sse.addEventListener('message', (ev) => {
+  const data = ev.data;
+  console.log('你收到的訊息在這 : ', data);
+})
+```
+
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/894574e85b33afe0bd9077859dc0822bdb004acd)
 
 ---
@@ -114,6 +234,14 @@
 ## 教學④ 前置 複製 01 作為 POST 版起點
 
 - 從 01 複製作為 POST 版起點
+
+**關鍵程式碼**
+
+無程式碼變更，見指令
+
+```sh
+cp -R tutorial/01-get-sse tutorial/02-post-stream
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/34c8278a98e0722d2fcb68b889c8b8f1d0d37cd5)
 
@@ -129,6 +257,19 @@
 - 驗收：curl -i localhost:8081/sse 回 405
 - 卡點：改成 POST 後 EventSource 只能 GET，前端會失效
 
+**關鍵程式碼**
+
+`tutorial/02-post-stream/backend/main.go`
+
+```go
+func main() {
+	router := http.NewServeMux()
+	router.HandleFunc("GET /{$}", handleRoot)
+	router.HandleFunc("POST /sse", handleSSE)
+	// ...
+}
+```
+
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/e6c72e78a6981a468d89f06c2a880178bc485781)
 
 ---
@@ -143,6 +284,24 @@
 - 重點：此時前端還不會觸發預檢，⑥ 帶 JSON 才用到
 - 驗收：curl -i -X OPTIONS localhost:8081/sse 回 204
 - 卡點：前端帶 application/json 時瀏覽器先送 OPTIONS
+
+**關鍵程式碼**
+
+`tutorial/02-post-stream/backend/main.go`
+
+```go
+func handleSSEOption(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, POST")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.WriteHeader(http.StatusNoContent)
+}
+```
+
+```go
+	router.HandleFunc("OPTIONS /sse", handleSSEOption)
+	router.HandleFunc("POST /sse", handleSSE)
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/a3843726f916be7fa29e427edbd44bd00f4dd27e)
 
@@ -160,6 +319,39 @@
 - 重點：finally 內 releaseLock 釋放 reader
 - 驗收：按「發射！！」後 Console 每秒印出 event 與 data 兩行
 - 卡點：done 為 true 沒 return 會無限迴圈
+
+**關鍵程式碼**
+
+`tutorial/02-post-stream/frontend/src/App.vue`
+
+```ts
+  const response = await fetch(`${API_BASE}/sse`, {
+    method: 'POST',
+    headers: {
+      'Accept': 'text/event-stream',
+    }
+  });
+  if (!response.ok) {
+    console.log('不 ok');
+    return;
+  }
+  // ...
+```
+
+```ts
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  try {
+    while(true) {
+      const { value, done } = await reader.read();
+      if(done) return;
+      const text = decoder.decode(value, { stream: true });
+      console.log(text);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/cc4592eb1022562a605e64a72e9257928a1e76eb)
 
@@ -181,6 +373,30 @@
 - 卡點：用 split(':') 會把時間切壞，用 trim 會吃掉內容空白
 - 卡點：沒有 buffer 時一個 chunk 可能只有半筆事件
 
+**關鍵程式碼**
+
+`tutorial/02-post-stream/frontend/src/App.vue`
+
+```ts
+      buffer += decoder.decode(value, { stream: true });
+      const textList = buffer.split('\n\n');
+      buffer = textList.pop() ?? '';
+      handleEvent(textList, opts);
+```
+
+```ts
+    for(const line of lineList) {
+      const idx = line.indexOf(':');
+      if (idx === -1) continue;
+      const key = line.slice(0, idx);
+      const rawValue = line.slice(idx+1);
+      const value = rawValue.startsWith(' ') ? rawValue.slice(1) : rawValue;
+      setResult(result, { field: isSSEEventKey(key) ? key : 'data', value, dataList });
+    }
+    result.data = dataList.join('\n');
+    triggerEvent(result, opts);
+```
+
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/1ea923b91f9e68a36df15acc6a895689e5c5d882)
 
 ---
@@ -201,6 +417,46 @@
 - 卡點：先 WriteHeader(200) 再驗證，400 就送不出去
 - 卡點：sleep 沒用 s.ctx，斷線後仍會繼續跑
 
+**關鍵程式碼**
+
+`tutorial/02-post-stream/backend/main.go`
+
+```go
+func (s *SSEWriter) SendAgentStep(event, message string, delay time.Duration) error {
+	tokens := tokenize(message, 1)
+	for i, token := range tokens {
+		sseEvent := SSEEvent{
+			ID:    strconv.Itoa(i),
+			Event: event,
+			Data:  token,
+		}
+		err := s.send(sseEvent)
+		if err != nil {
+			return err
+		}
+		err = sleep(s.ctx, delay)
+		// ...
+	}
+	// ...
+}
+```
+
+```go
+func handleSSE(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	decoder := json.NewDecoder(r.Body)
+	var req SSERequest
+	err := decoder.Decode(&req)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	// ...
+	err = sseWriter.SendAgentStep("message", message, 80*time.Millisecond)
+	// ...
+}
+```
+
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/958e6561fa9393af8c2fd5b95535b3f59f1821b1)
 
 ---
@@ -216,6 +472,32 @@
 - 驗收：輸入中文送出，Console 逐字印出收到的訊息
 - 驗收：Network 先看到 OPTIONS 再看到 POST
 - 卡點：帶 application/json 會觸發預檢，後端要有 OPTIONS
+
+**關鍵程式碼**
+
+`tutorial/02-post-stream/frontend/src/App.vue`
+
+```ts
+  if (!inputMessage.value.trim()) return;
+  const req: SSERequest = {
+    message: inputMessage.value,
+  }
+  const response = await fetch(`${API_BASE}/sse`, {
+    method: 'POST',
+    headers: {
+      'Accept': 'text/event-stream',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(req),
+  });
+```
+
+```vue
+<template>
+  <textarea v-model="inputMessage"></textarea>
+  <button @click="handleClick">送出</button>
+</template>
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/75d54a2047871418fcddcf6d7d323b64813b2e33)
 
@@ -233,6 +515,36 @@
 - 驗收：輸入中文送出，AI 回應逐字出現且無亂碼
 - 卡點：每個 token 都 push 新訊息，畫面會一字一框
 
+**關鍵程式碼**
+
+`tutorial/02-post-stream/frontend/src/App.vue`
+
+```ts
+    onMessage: (payload: string) => {
+      const currentMessageList = messageList.value;
+      const lastMessage = currentMessageList[currentMessageList.length - 1];
+      if (lastMessage.type === 'ai') {
+        lastMessage.message += payload;
+        return;
+      }
+      currentMessageList.push({
+        type: 'ai',
+        message: payload,
+      })
+    },
+```
+
+```vue
+    <div v-for="(messageObject, index) in messageList"
+      :key="index"
+      class="chat-block"
+      :class="{ 'chat-ai': messageObject.type === 'ai' }"
+    >
+      <!-- ... -->
+      {{ messageObject.message }}
+    </div>
+```
+
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/3a4d5e7d5f3f47875028ef594be4a2c84881553c)
 
 ---
@@ -248,6 +560,41 @@
 - 重點：使用者取消不再寫入，其他錯誤送不可重試的 error
 - 驗收：curl 依序看到 thinking、tool_call、tool_result、text、done
 - 卡點：取消後還寫 error 事件，連線已斷只會再噴錯
+
+**關鍵程式碼**
+
+`tutorial/02-post-stream/backend/main.go`
+
+```go
+func (s *SSEWriter) sendJSON(event string, payload any) error {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	s.seq++
+	return s.send(SSEEvent{
+		ID:    strconv.Itoa(s.seq),
+		Event: event,
+		Data:  string(b),
+	})
+}
+```
+
+```go
+	err = sseWriter.RunScenario(buildScenario(req.Message), 40*time.Millisecond)
+	if err != nil {
+		// 使用者取消時連線已斷，不再寫入
+		if errors.Is(err, context.Canceled) {
+			log.Println("使用者取消")
+			return
+		}
+		sseWriter.sendJSON("error", map[string]any{
+			"stepId":    "server-error",
+			"message":   err.Error(),
+			"retryable": false,
+		})
+	}
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/04e91735a619b62679655abb5be0ca277a827f84)
 
@@ -267,6 +614,39 @@
 - 驗收：scenario 亂填回 400 unknown scenario
 - 卡點：先 WriteHeader(200) 再驗證劇本，400 送不出去
 
+**關鍵程式碼**
+
+`tutorial/02-post-stream/backend/main.go`
+
+```go
+func buildScenario(name, message string) ([]Step, bool) {
+	switch name {
+	case "search_and_calc":
+		// ...
+	case "multi_tool":
+		// 結果回來的順序與呼叫順序不同，前端要用 toolCallId 配對
+		// ...
+	}
+	return nil, false
+}
+```
+
+```go
+	if req.Scenario == "" {
+		req.Scenario = "search_and_calc"
+	}
+	// 開串流前驗證，錯誤才能用 HTTP status 回應
+	steps, ok := buildScenario(req.Scenario, req.Message)
+	if !ok {
+		http.Error(w, "unknown scenario: "+req.Scenario, http.StatusBadRequest)
+		return
+	}
+	delay := 40 * time.Millisecond
+	if req.Speed == "fast" {
+		delay = 2 * time.Millisecond
+	}
+```
+
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/ce1ccc0d700d869c0b5eafa0c4de68404d0aaa7c)
 
 ---
@@ -283,6 +663,38 @@
 - 驗收：error_retry 收到 retryable true、resumeFrom s4 的 error
 - 驗收：帶 resumeFrom s4 只送 s4 文字並以 done 收尾
 - 卡點：重跑沒跳過 fail，會一直失敗無法完成
+
+**關鍵程式碼**
+
+`tutorial/02-post-stream/backend/main.go`
+
+```go
+	// 跳過 resumeFrom 之前已完成的 step
+	started := resumeFrom == ""
+	for i, st := range steps {
+		if !started {
+			if st.ID != resumeFrom {
+				continue
+			}
+			started = true
+		}
+		// ...
+			// 第一次跑且下一步是 fail，只送一半模擬寫到一半斷線
+			nextIsFail := i+1 < len(steps) && steps[i+1].Type == "fail"
+			if resumeFrom == "" && nextIsFail {
+				tokens = tokens[:len(tokens)/2]
+			}
+```
+
+```go
+		case "fail":
+			if resumeFrom != "" {
+				continue
+			}
+			payload := map[string]any{"stepId": st.ID}
+			maps.Copy(payload, st.Payload)
+			return s.sendJSON("error", payload)
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/bd62da3e3d4fe627b5215db911c9fa33a6e88cc8)
 
@@ -301,6 +713,36 @@
 - 驗收：bun run build 綠燈
 - 卡點：事件與步驟共用一個型別，delta 無法累積成一個 step
 
+**關鍵程式碼**
+
+`tutorial/02-post-stream/frontend/src/types/agent.ts`
+
+```ts
+// 後端事件：event 是判別欄位，data 是 JSON
+export type AgentEvent =
+  | { event: 'thinking'; data: { stepId: string; delta: string } }
+  | { event: 'tool_call'; data: { stepId: string; toolCallId: string; name: string; args: Record<string, unknown> } }
+  | { event: 'tool_result'; data: { stepId: string; toolCallId: string; output: unknown } }
+  | { event: 'text'; data: { stepId: string; delta: string } }
+  | { event: 'error'; data: { stepId: string; message: string; retryable: boolean; resumeFrom?: string } }
+  | { event: 'done'; data: Record<string, never> };
+```
+
+```ts
+// 畫面步驟：多個 delta 事件累積成一個 step
+export type AgentStep =
+  | (BaseStep & { type: 'thinking'; content: string })
+  | (BaseStep & { type: 'tool_call'; toolCallId: string; name: string; args: Record<string, unknown> })
+  | (BaseStep & { type: 'tool_result'; toolCallId: string; output: unknown })
+  | (BaseStep & { type: 'text'; content: string })
+  | (BaseStep & { type: 'error'; message: string; retryable: boolean; resumeFrom?: string });
+
+// 放在 switch default，漏寫 case 會編譯錯誤
+export function assertNever(x: never): never {
+  throw new Error(`未處理的型別 : ${JSON.stringify(x)}`);
+}
+```
+
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/6ff024edff8c0d173846efa9b7234e3c48f84be0)
 
 ---
@@ -317,6 +759,40 @@
 - 重點：\r\n 先統一成 \n，結束時處理剩餘 buffer
 - 驗收：bun run build 綠燈
 - 卡點：最後一則沒有 \n\n 結尾，沒處理剩餘 buffer 會漏掉
+
+**關鍵程式碼**
+
+`tutorial/02-post-stream/frontend/src/lib/sse.ts`
+
+```ts
+  if (!isAgentEventName(event)) return null;
+
+  try {
+    const data: unknown = JSON.parse(dataList.join('\n') || '{}');
+    // 信任後端格式，正式產品可改用 type guard 或 schema 驗證
+    return { event, data } as AgentEvent;
+  } catch {
+    return {
+      event: 'error',
+      data: { stepId: crypto.randomUUID(), message: `無法解析的事件 : ${event}`, retryable: false },
+    };
+  }
+```
+
+```ts
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      // 其他 server 可能送 \r\n，先統一成 \n
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, '\n');
+      const blockList = buffer.split('\n\n');
+      buffer = blockList.pop() ?? '';
+      handleBlocks(blockList);
+    }
+    // 最後一則可能沒有 \n\n 結尾
+    buffer += decoder.decode();
+    handleBlocks([buffer]);
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/edea60c2f36bf7796cd653068f8315432f2eefe7)
 
@@ -335,6 +811,38 @@
 - 驗收：bun run build 綠燈
 - 卡點：用 steps.at(-1) 找 tool_call，multi_tool 亂序會配錯
 
+**關鍵程式碼**
+
+`tutorial/02-post-stream/frontend/src/lib/applyEvent.ts`
+
+```ts
+    case 'thinking':
+    case 'text': {
+      const last = steps.at(-1);
+      // 同一個 step 的後續 delta 接在後面
+      if (last && last.id === ev.data.stepId && (last.type === 'thinking' || last.type === 'text')) {
+        last.content += ev.data.delta;
+        return;
+      }
+      finishStreaming(steps, 'done');
+      steps.push({ id: ev.data.stepId, type: ev.event, status: 'running', content: ev.data.delta });
+      return;
+    }
+```
+
+```ts
+    case 'tool_result': {
+      finishStreaming(steps, 'done');
+      // 結果順序不一定，要用 toolCallId 配對
+      const call = steps.find(s => s.type === 'tool_call' && s.toolCallId === ev.data.toolCallId);
+      if (call) call.status = 'done';
+      // ...
+    }
+    // ...
+    default:
+      assertNever(ev);
+```
+
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/84706f857c9f0f1a112068015ea5f4986fb45cd1)
 
 ---
@@ -350,6 +858,29 @@
 - 重點：flush 也開放給外部，結束與取消時用
 - 驗收：bun run build 綠燈
 - 卡點：非文字事件沒先 flush，tool_call 會跑到文字前面
+
+**關鍵程式碼**
+
+`tutorial/02-post-stream/frontend/src/lib/batcher.ts`
+
+```ts
+  const push = (ev: AgentEvent): void => {
+    if (ev.event === 'thinking' || ev.event === 'text') {
+      if (pending && pending.event === ev.event && pending.data.stepId === ev.data.stepId) {
+        pending.data.delta += ev.data.delta;
+      } else {
+        flush();
+        // 複製一份，合併時不改到原始事件
+        pending = { ...ev, data: { ...ev.data } };
+      }
+      timer ??= setTimeout(flush, interval);
+      return;
+    }
+    // 非文字事件先 flush，順序才不會亂
+    flush();
+    apply(ev);
+  }
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/5cdb9de1aca72550323347f7357bdd825cf037b3)
 
@@ -367,6 +898,45 @@
 - 重點：網路或 HTTP 錯誤轉成可重試的 error step
 - 驗收：bun run build 綠燈
 - 卡點：沒擋舊請求，連按送出兩次的事件會混在一起
+
+**關鍵程式碼**
+
+`tutorial/02-post-stream/frontend/src/composables/useAgent.ts`
+
+```ts
+  async function run(req: AgentRequest): Promise<void> {
+    controller?.abort();
+    const current = new AbortController();
+    controller = current;
+    isRunning.value = true;
+
+    const onEvent = (ev: AgentEvent): void => {
+      // 已被新請求取代的舊事件一律忽略
+      if (controller !== current) return;
+      if (toValue(options.throttle)) {
+        batcher.push(ev);
+      } else {
+        batcher.flush();
+        applyEvent(steps.value, ev);
+      }
+    }
+    // ...
+```
+
+```ts
+    } catch (e) {
+      if (controller !== current) return;
+      batcher.flush();
+      markRunning(steps.value, 'error');
+      steps.value.push({
+        id: crypto.randomUUID(),
+        type: 'error',
+        status: 'error',
+        message: e instanceof Error ? e.message : String(e),
+        retryable: true,
+      });
+    }
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/9e8ab8a253f643696450b0fb1f9eff54910f53ce)
 
@@ -386,6 +956,47 @@
 - 驗收：speed fast 時關閉合批，re-render 次數明顯變多
 - 卡點：template 無法寫 assertNever，新 step 型別要靠 applyEvent 提醒
 
+**關鍵程式碼**
+
+`tutorial/02-post-stream/frontend/src/components/AgentTimeline.vue`
+
+```vue
+      <details v-if="step.type === 'thinking'" class="thinking" :open="step.status === 'running'">
+        <summary class="step-label label-thinking">
+          {{ step.status === 'running' ? '思考中…' : '思考過程' }}
+        </summary>
+        <p class="thinking-content">{{ step.content }}</p>
+      </details>
+
+      <div v-else-if="step.type === 'tool_call'">
+        <div class="step-label label-tool">
+          呼叫工具 : {{ step.name }}
+          <span v-if="step.status === 'running'" class="spinner" aria-label="執行中"></span>
+        </div>
+        <pre class="code">{{ toJSON(step.args) }}</pre>
+      </div>
+      <!-- ... -->
+```
+
+`tutorial/02-post-stream/frontend/src/App.vue`
+
+```ts
+  const { steps, isRunning, ask } = useAgent({ throttle });
+
+  // methods::
+  const handleSubmit = (): void => {
+    if (!inputMessage.value.trim() || isRunning.value) return;
+    question.value = inputMessage.value;
+    renderCount.value = 0;
+    ask({
+      message: inputMessage.value,
+      scenario: scenario.value,
+      speed: speed.value,
+    });
+    inputMessage.value = '';
+  }
+```
+
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/c5533ebbf1b08a15df8e6ecf9d71f00639f0f5bb)
 
 ---
@@ -404,6 +1015,42 @@
 - 驗收：error_retry 按「從 s4 重試」只重跑 s4 並完成
 - 驗收：執行中按停止或 Ctrl+C，後端印出使用者取消
 - 卡點：AbortError 當成一般錯誤，取消會顯示成發生錯誤
+
+**關鍵程式碼**
+
+`tutorial/02-post-stream/frontend/src/composables/useAgent.ts`
+
+```ts
+  // abort 後 fetch 中斷，後端 r.Context() 也會被 cancel
+  function stop(): void {
+    controller?.abort();
+  }
+
+  // 保留指定 step 之前的結果，找不到 step 就從頭重跑
+  function retryFrom(stepId?: string): void {
+    if (!lastRequest || isRunning.value) return;
+    const idx = stepId ? steps.value.findIndex(s => s.id === stepId) : -1;
+    if (idx === -1) {
+      ask({ ...lastRequest, resumeFrom: undefined });
+      return;
+    }
+    steps.value = steps.value.slice(0, idx).filter(s => s.type !== 'error');
+    void run({ ...lastRequest, resumeFrom: stepId });
+  }
+```
+
+`tutorial/02-post-stream/frontend/src/App.vue`
+
+```ts
+  // 執行中才攔截 Ctrl+C，有選取文字時保留複製
+  const handleKeydown = (e: KeyboardEvent): void => {
+    if (!e.ctrlKey || e.key.toLowerCase() !== 'c') return;
+    if (!isRunning.value) return;
+    if (window.getSelection()?.toString()) return;
+    e.preventDefault();
+    stop();
+  }
+```
 
 [看程式碼變更](https://github.com/AdaaWu/helloworlddev-agentic-client/commit/7259b9c8fe4e42c1bb1d768cd061dc09fe5c3bb0)
 
