@@ -29,6 +29,8 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 type SSERequest struct {
 	Message  string `json:"message"`
 	Scenario string `json:"scenario"`
+	// 有值時從這個 step 開始重跑
+	ResumeFrom string `json:"resumeFrom"`
 	// fast 模擬 LLM 爆發輸出，用來展示前端 16ms throttle
 	Speed string `json:"speed"`
 }
@@ -111,6 +113,7 @@ func (s *SSEWriter) sendJSON(event string, payload any) error {
 }
 
 // thinking、text 逐字送 Text；tool_call、tool_result 一次送 Payload
+// fail 只在第一次跑時送出 error 並結束
 type Step struct {
 	ID      string
 	Type    string
@@ -164,15 +167,45 @@ func buildScenario(name, message string) ([]Step, bool) {
 			}},
 			{ID: "s8", Type: "text", Text: "早安！台北今天多雲、約 26 度。科技新聞：AI Agent 前端框架持續升溫、Vue 3.5 效能更新。台積電目前 1085 元，上漲 1.2%。"},
 		}, true
+	case "error_retry":
+		// 第一次回答寫到一半失敗，帶 resumeFrom s4 重跑才會完成
+		return []Step{
+			{ID: "s1", Type: "thinking", Text: fmt.Sprintf("使用者說：「%s」。我先查美金對台幣的匯率。", message)},
+			{ID: "s2", Type: "tool_call", Payload: map[string]any{
+				"toolCallId": "c1", "name": "exchange_rate", "args": map[string]any{"from": "USD", "to": "TWD"},
+			}},
+			{ID: "s3", Type: "tool_result", Payload: map[string]any{
+				"toolCallId": "c1", "output": 32.1,
+			}},
+			{ID: "s4", Type: "text", Text: "目前匯率約 1 美元兌 32.1 新台幣，所以 100 美元大約等於 3210 新台幣。"},
+			{ID: "s5", Type: "fail", Payload: map[string]any{
+				"message": "LLM 連線中斷（模擬）", "retryable": true, "resumeFrom": "s4",
+			}},
+		}, true
 	}
 	return nil, false
 }
 
-func (s *SSEWriter) RunScenario(steps []Step, delay time.Duration) error {
-	for _, st := range steps {
+func (s *SSEWriter) RunScenario(steps []Step, resumeFrom string, delay time.Duration) error {
+	// 跳過 resumeFrom 之前已完成的 step
+	started := resumeFrom == ""
+	for i, st := range steps {
+		if !started {
+			if st.ID != resumeFrom {
+				continue
+			}
+			started = true
+		}
+
 		switch st.Type {
 		case "thinking", "text":
-			for _, token := range tokenize(st.Text, 1) {
+			tokens := tokenize(st.Text, 1)
+			// 第一次跑且下一步是 fail，只送一半模擬寫到一半斷線
+			nextIsFail := i+1 < len(steps) && steps[i+1].Type == "fail"
+			if resumeFrom == "" && nextIsFail {
+				tokens = tokens[:len(tokens)/2]
+			}
+			for _, token := range tokens {
 				err := s.sendJSON(st.Type, map[string]any{"stepId": st.ID, "delta": token})
 				if err != nil {
 					return err
@@ -190,6 +223,13 @@ func (s *SSEWriter) RunScenario(steps []Step, delay time.Duration) error {
 			if err := sleep(s.ctx, toolDelay); err != nil {
 				return err
 			}
+		case "fail":
+			if resumeFrom != "" {
+				continue
+			}
+			payload := map[string]any{"stepId": st.ID}
+			maps.Copy(payload, st.Payload)
+			return s.sendJSON("error", payload)
 		}
 	}
 	return s.sendJSON("done", map[string]any{})
@@ -240,7 +280,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 		rc:  rc,
 	}
 
-	err = sseWriter.RunScenario(steps, delay)
+	err = sseWriter.RunScenario(steps, req.ResumeFrom, delay)
 	if err != nil {
 		// 使用者取消時連線已斷，不再寫入
 		if errors.Is(err, context.Canceled) {
