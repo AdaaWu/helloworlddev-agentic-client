@@ -1,216 +1,78 @@
 <script setup lang="ts">
-import { shallowRef, ref } from 'vue';
+  import { shallowRef } from 'vue';
+  import AgentTimeline from './components/AgentTimeline.vue';
+  import { useAgent } from './composables/useAgent';
+  import { scenarioList, type Scenario, type Speed } from './types/agent';
 
-const API_BASE = 'http://localhost:8081';
+  // state::
+  const inputMessage = shallowRef('');
+  const question = shallowRef('');
+  const scenario = shallowRef<Scenario>('search_and_calc');
+  const speed = shallowRef<Speed>('normal');
+  const throttle = shallowRef(true);
+  const renderCount = shallowRef(0);
 
-interface SSERequest {
-  message: string
-}
+  const { steps, isRunning, ask } = useAgent({ throttle });
 
-interface EventOpts {
-  onMessage?: (payload: string) => void
-  onToolCalling?: (payload: string) => void
-  onDone?: (payload: string) => void
-  onError?: (payload: string) => void
-}
-
-const eventStatusList = [
-  'message',
-  'tool_calling',
-  'done',
-  'error',
-] as const;
-
-type EventStatus = typeof eventStatusList[number];
-
-interface SSEEvent {
-  id: string
-  event: EventStatus
-  data: string
-  retry: number
-}
-
-type SSEEventKey = keyof SSEEvent;
-
-type ResultOptions =
-  { field: 'id', value: string} |
-  { field: 'event', value: string} |
-  { field: 'data', value: string, dataList: string[] } |
-  { field: 'retry', value: string};
-
-interface LLMResult {
-  type: 'user' | 'ai',
-  message: string
-}
-
-const inputMessage = shallowRef('');
-const messageList = ref<LLMResult[]>([]);
-
-const isEvent = (input: unknown): input is EventStatus => {
-  return eventStatusList.some(item => item === input);
-}
-
-const isSSEEventKey = (input: unknown): input is SSEEventKey => {
-  const sample: Record<SSEEventKey, true> = {
-    id: true,
-    event: true,
-    data: true,
-    retry: true,
-  }
-  return typeof input === 'string' && Object.hasOwn(sample, input);
-}
-
-const setResult = (result: SSEEvent, resultOptions: ResultOptions) => {
-  switch(resultOptions.field) {
-    case 'id':
-      result.id = resultOptions.value;
-      break;
-    case 'event':
-      if (isEvent(resultOptions.value)) result.event = resultOptions.value;
-      break;
-    case 'data':
-      resultOptions.dataList.push(resultOptions.value);
-      break;
-    case 'retry':
-      if (!resultOptions.value.trim()) return;
-      const retryNum = Number(resultOptions.value);
-      result.retry = !Number.isNaN(retryNum) ? retryNum : 1;
-      break;
-  }
-}
-
-const triggerEvent = (result: SSEEvent, opts: EventOpts) => {
-  const { onMessage, onToolCalling, onDone, onError } = opts;
-  const { data } = result;
-  switch(result.event) {
-    case 'message':
-      onMessage?.(data);
-      break;
-    case 'tool_calling':
-      onToolCalling?.(data);
-      break;
-    case 'done':
-      onDone?.(data);
-      break;
-    case 'error':
-      onError?.(data);
-      break;
-  }
-}
-
-const handleEvent = (textList: string[], opts: EventOpts): void => {
-  for(const text of textList) {
-    if(!text.trim()) continue;
-    const lineList = text.split('\n');
-    const dataList: string[] = [];
-    const result: SSEEvent = {
-      id: '',
-      event: 'message',
-      data: '',
-      retry: 1,
-    }
-    for(const line of lineList) {
-      const idx = line.indexOf(':');
-      if (idx === -1) continue;
-      const key = line.slice(0, idx);
-      const rawValue = line.slice(idx+1);
-      const value = rawValue.startsWith(' ') ? rawValue.slice(1) : rawValue;
-      setResult(result, { field: isSSEEventKey(key) ? key : 'data', value, dataList });
-    }
-    result.data = dataList.join('\n');
-    triggerEvent(result, opts);
-  }
-}
-
-const startEvent = async (opts: EventOpts): Promise<void> => {
-  if (!inputMessage.value.trim()) return;
-  const req: SSERequest = {
-    message: inputMessage.value,
-  }
-  const response = await fetch(`${API_BASE}/sse`, {
-    method: 'POST',
-    headers: {
-      'Accept': 'text/event-stream',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(req),
-  });
-  if (!response.ok) {
-    console.log('不 okay');
-    return;
-  }
-  const body = response.body;
-  if (!body) {
-    console.log('body null');
-    return;
-  }
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  try {
-    while(true) {
-      const { value, done } = await reader.read();
-      if(done) return;
-      buffer += decoder.decode(value, { stream: true });
-      const textList = buffer.split('\n\n');
-      buffer = textList.pop() ?? '';
-      handleEvent(textList, opts);
-    }
-  } finally {
-    reader.releaseLock();
+  // methods::
+  const handleSubmit = (): void => {
+    if (!inputMessage.value.trim() || isRunning.value) return;
+    question.value = inputMessage.value;
+    renderCount.value = 0;
+    ask({
+      message: inputMessage.value,
+      scenario: scenario.value,
+      speed: speed.value,
+    });
     inputMessage.value = '';
   }
-}
-
-const handleClick = async (): Promise<void> => {
-  if (!inputMessage.value.trim()) return;
-  messageList.value.push({
-    type: 'user',
-    message: inputMessage.value,
-  })
-  const opts: EventOpts = {
-    onMessage: (payload: string) => {
-      const currentMessageList = messageList.value;
-      const lastMessage = currentMessageList[currentMessageList.length - 1];
-      if (lastMessage.type === 'ai') {
-        lastMessage.message += payload;
-        return;
-      }
-      currentMessageList.push({
-        type: 'ai',
-        message: payload,
-      })
-    },
-    onDone: () => {
-      console.log('%c回應完成', 'color: lightgreen');
-    }
-  }
-  await startEvent(opts);
-}
 </script>
 
 <template>
-  <h1>demo-4 測試畫面</h1>
+  <h1>demo-5 測試畫面</h1>
   <div class="input-block">
-    <textarea class="input-text" v-model="inputMessage"></textarea>
-    <div>
-      <button class="input-button" @click="handleClick">送出</button>
+    <div class="options">
+      <label>
+        scenario
+        <select v-model="scenario" class="select" :disabled="isRunning">
+          <option v-for="item in scenarioList" :key="item" :value="item">{{ item }}</option>
+        </select>
+      </label>
+      <label>
+        速度
+        <select v-model="speed" class="select" :disabled="isRunning">
+          <option value="normal">normal（40ms / 字）</option>
+          <option value="fast">fast（2ms / 字）</option>
+        </select>
+      </label>
+      <label class="checkbox">
+        <input v-model="throttle" type="checkbox" :disabled="isRunning" />
+        16ms 合批
+      </label>
+    </div>
+    <textarea
+      v-model="inputMessage"
+      class="input-text"
+      placeholder="輸入問題，例如：北北基總共有多少人？"
+      @keydown.enter.exact.prevent="handleSubmit"
+    ></textarea>
+    <div class="actions">
+      <span class="hint">Enter 送出</span>
+      <button class="input-button" @click="handleSubmit">送出</button>
     </div>
   </div>
-  <div v-show="messageList.length > 0" class="chat">
-    <div v-for="(messageObject, index) in messageList"
-      :key="index"
-      class="chat-block"
-      :class="{ 'chat-ai': messageObject.type === 'ai' }"
-    >
-      <div
-        class="chat-role"
-        :class="[messageObject.type === 'ai' ? 'chat-role-ai' : 'chat-role-user']"
-      >
-        {{ messageObject.type === 'ai' ? 'AI 的回應' : '你的回應' }}
+
+  <div v-show="question" class="chat">
+    <div class="chat-block">
+      <div class="chat-role chat-role-user">你的回應</div>
+      {{ question }}
+    </div>
+    <div class="chat-agent">
+      <div class="status">
+        <span v-if="isRunning" class="status-tag">執行中</span>
+        <span class="render-count" data-testid="render-count">Timeline re-render : {{ renderCount }} 次</span>
       </div>
-      {{ messageObject.message }}
+      <AgentTimeline :steps="steps" @rendered="renderCount++" />
     </div>
   </div>
 </template>
@@ -232,6 +94,28 @@ const handleClick = async (): Promise<void> => {
   border: 3px solid #2E2E2E;
   border-radius: 1.75rem;
 }
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  letter-spacing: 0.05em;
+}
+.select {
+  margin-left: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  background-color: #FFFFFF;
+  color: #2E2E2E;
+  font-size: 0.95rem;
+  border: 2.5px solid #2E2E2E;
+  border-radius: 999px;
+  outline: none;
+}
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  column-gap: 0.4rem;
+}
 .input-text {
   padding: 1rem 1.25rem;
   height: 20vh;
@@ -246,12 +130,18 @@ const handleClick = async (): Promise<void> => {
   outline: none;
   resize: vertical;
 }
-.input-block > div {
-  display: flex;
-  justify-content: flex-end;
-}
 .input-text:focus {
   box-shadow: 0 0 0 4px #A9CBE0;
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  column-gap: 1rem;
+}
+.hint {
+  color: #6B6B6B;
+  font-size: 0.9rem;
 }
 .input-button {
   padding: 0.5rem 1.75rem;
@@ -284,7 +174,6 @@ const handleClick = async (): Promise<void> => {
   border-radius: 1.75rem;
   align-items: end;
 }
-
 .chat-block {
   width: 60%;
   box-sizing: border-box;
@@ -296,12 +185,28 @@ const handleClick = async (): Promise<void> => {
   letter-spacing: 0.03em;
   white-space: pre-wrap;
 }
-
-.chat-ai {
+.chat-agent {
   align-self: start;
-  background-color: #DFEBD6;
+  width: 60%;
 }
-
+.status {
+  display: flex;
+  align-items: center;
+  column-gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.status-tag {
+  padding: 0.15rem 0.9rem;
+  background-color: #B5D3A0;
+  border: 2.5px solid #2E2E2E;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+}
+.render-count {
+  color: #6B6B6B;
+  font-size: 0.9rem;
+}
 .chat-role {
   width: fit-content;
   margin-bottom: 0.6rem;
@@ -312,12 +217,7 @@ const handleClick = async (): Promise<void> => {
   font-size: 0.9rem;
   letter-spacing: 0.08em;
 }
-
 .chat-role-user {
   background-color: #E8968A;
-}
-
-.chat-role-ai {
-  background-color: #B5D3A0;
 }
 </style>
