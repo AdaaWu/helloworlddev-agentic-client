@@ -52,7 +52,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 func main() {
 	router := http.NewServeMux()
 	router.HandleFunc("GET /{$}", handleRoot)
-	router.HandleFunc("GET /sse", handleSSE)
+	router.HandleFunc("POST /sse", handleSSE)
 	fmt.Println("run on http://localhost:8081/sse")
 	server := &http.Server{
 		Addr:    ":8081",
