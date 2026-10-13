@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { shallowRef } from 'vue';
+  import { onBeforeUnmount, onMounted, shallowRef } from 'vue';
   import AgentTimeline from './components/AgentTimeline.vue';
   import { useAgent } from './composables/useAgent';
   import { scenarioList, type Scenario, type Speed } from './types/agent';
@@ -12,7 +12,7 @@
   const throttle = shallowRef(true);
   const renderCount = shallowRef(0);
 
-  const { steps, isRunning, ask } = useAgent({ throttle });
+  const { steps, isRunning, isAborted, ask, stop, retryFrom } = useAgent({ throttle });
 
   // methods::
   const handleSubmit = (): void => {
@@ -26,6 +26,23 @@
     });
     inputMessage.value = '';
   }
+
+  const handleRetry = (fromStepId: string | undefined): void => {
+    renderCount.value = 0;
+    retryFrom(fromStepId);
+  }
+
+  // 執行中才攔截 Ctrl+C，有選取文字時保留複製
+  const handleKeydown = (e: KeyboardEvent): void => {
+    if (!e.ctrlKey || e.key.toLowerCase() !== 'c') return;
+    if (!isRunning.value) return;
+    if (window.getSelection()?.toString()) return;
+    e.preventDefault();
+    stop();
+  }
+
+  onMounted(() => window.addEventListener('keydown', handleKeydown));
+  onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
 </script>
 
 <template>
@@ -57,8 +74,9 @@
       @keydown.enter.exact.prevent="handleSubmit"
     ></textarea>
     <div class="actions">
-      <span class="hint">Enter 送出</span>
-      <button class="input-button" @click="handleSubmit">送出</button>
+      <span class="hint">{{ isRunning ? '執行中，按 Ctrl+C 或「停止」可以取消' : 'Enter 送出' }}</span>
+      <button v-if="!isRunning" class="input-button" @click="handleSubmit">送出</button>
+      <button v-else class="input-button stop-button" @click="stop">停止</button>
     </div>
   </div>
 
@@ -70,9 +88,10 @@
     <div class="chat-agent">
       <div class="status">
         <span v-if="isRunning" class="status-tag">執行中</span>
+        <span v-else-if="isAborted" class="status-tag status-aborted">已取消</span>
         <span class="render-count" data-testid="render-count">Timeline re-render : {{ renderCount }} 次</span>
       </div>
-      <AgentTimeline :steps="steps" @rendered="renderCount++" />
+      <AgentTimeline :steps="steps" @retry="handleRetry" @rendered="renderCount++" />
     </div>
   </div>
 </template>
@@ -161,6 +180,12 @@
 .input-button:active {
   transform: translateY(2px);
 }
+.stop-button {
+  background-color: #A9CBE0;
+}
+.stop-button:hover {
+  background-color: #8FB8D3;
+}
 .chat {
   display: flex;
   flex-direction: column;
@@ -202,6 +227,9 @@
   border-radius: 999px;
   font-size: 0.9rem;
   letter-spacing: 0.08em;
+}
+.status-aborted {
+  background-color: #E8968A;
 }
 .render-count {
   color: #6B6B6B;

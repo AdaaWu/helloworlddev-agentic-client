@@ -1,15 +1,19 @@
 <script setup lang="ts">
-  import { onUpdated } from 'vue';
+  import { computed, onUpdated } from 'vue';
   import type { AgentStep } from '../types/agent';
 
-  defineProps<{
+  const props = defineProps<{
     steps: AgentStep[]
   }>();
 
   const emit = defineEmits<{
+    retry: [fromStepId: string | undefined]
     // 每次 re-render 通知外層，用來比較 throttle 效果
     rendered: []
   }>();
+
+  // 第一個 aborted 的 step 就是繼續執行的起點
+  const firstAbortedStep = computed(() => props.steps.find(step => step.status === 'aborted'));
 
   const toJSON = (value: unknown): string => JSON.stringify(value, null, 2);
 
@@ -52,9 +56,25 @@
       <div v-else-if="step.type === 'error'" role="alert">
         <div class="step-label label-error">發生錯誤</div>
         <p>{{ step.message }}</p>
+        <button
+          v-if="step.retryable"
+          class="retry-button"
+          @click="emit('retry', step.resumeFrom)"
+        >
+          {{ step.resumeFrom ? `從 ${step.resumeFrom} 重試` : '重新開始' }}
+        </button>
+        <p v-else class="hint">這個錯誤無法重試</p>
       </div>
+
+      <p v-if="step.status === 'aborted'" class="hint">已中止</p>
     </li>
   </ol>
+
+  <div v-if="firstAbortedStep" class="resume">
+    <button class="retry-button" @click="emit('retry', firstAbortedStep.id)">
+      從中斷處（{{ firstAbortedStep.id }}）繼續
+    </button>
+  </div>
 </template>
 
 <style scoped>
@@ -85,6 +105,11 @@
   background-color: #FBE3DF;
 }
 
+
+.is-aborted {
+  opacity: 0.6;
+  border-style: dashed;
+}
 
 .step-label {
   display: inline-flex;
@@ -142,6 +167,12 @@ summary.step-label {
 }
 
 
+.hint {
+  margin: 0.5rem 0 0;
+  color: #6B6B6B;
+  font-size: 0.9rem;
+}
+
 /* steps(1) 讓游標跳著閃 */
 .cursor {
   display: inline-block;
@@ -178,4 +209,31 @@ summary.step-label {
 
 
 
+
+.resume {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.retry-button {
+  padding: 0.4rem 1.5rem;
+  outline: none;
+  border: 3px solid #2E2E2E;
+  border-radius: 999px;
+  background-color: #E8968A;
+  color: #2E2E2E;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: transform 0.1s ease, background-color 0.15s ease;
+}
+
+.retry-button:hover {
+  background-color: #E07F71;
+}
+
+.retry-button:active {
+  transform: translateY(2px);
+}
 </style>
