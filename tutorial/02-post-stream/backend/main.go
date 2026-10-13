@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -38,6 +40,8 @@ type SSEWriter struct {
 	ctx context.Context
 	w   http.ResponseWriter
 	rc  *http.ResponseController
+	// id 在整個 stream 內遞增
+	seq int
 }
 
 func formatEvent(ev SSEEvent) string {
@@ -89,29 +93,75 @@ func (s *SSEWriter) send(ev SSEEvent) error {
 	return s.write(formatEvent(ev))
 }
 
-func (s *SSEWriter) SendAgentStep(event, message string, delay time.Duration) error {
-	tokens := tokenize(message, 1)
-	for i, token := range tokens {
-		sseEvent := SSEEvent{
-			ID:    strconv.Itoa(i),
-			Event: event,
-			Data:  token,
-		}
-		err := s.send(sseEvent)
-		if err != nil {
-			return err
-		}
-		err = sleep(s.ctx, delay)
-		if err != nil {
-			return err
+// event 名稱對應前端 AgentEvent 的 discriminant
+func (s *SSEWriter) sendJSON(event string, payload any) error {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	s.seq++
+	return s.send(SSEEvent{
+		ID:    strconv.Itoa(s.seq),
+		Event: event,
+		Data:  string(b),
+	})
+}
+
+// thinking、text 逐字送 Text；tool_call、tool_result 一次送 Payload
+type Step struct {
+	ID      string
+	Type    string
+	Text    string
+	Payload map[string]any
+}
+
+// 模擬工具執行時間，前端 spinner 才看得到
+const toolDelay = 800 * time.Millisecond
+
+func buildScenario(message string) []Step {
+	return []Step{
+		{ID: "s1", Type: "thinking", Text: fmt.Sprintf("使用者說：「%s」。我先搜尋北北基的人口，再用計算機加總。", message)},
+		{ID: "s2", Type: "tool_call", Payload: map[string]any{
+			"toolCallId": "c1", "name": "search", "args": map[string]any{"q": "北北基 人口"},
+		}},
+		{ID: "s3", Type: "tool_result", Payload: map[string]any{
+			"toolCallId": "c1", "output": map[string]any{"台北市": 2490000, "新北市": 4050000, "基隆市": 360000},
+		}},
+		{ID: "s4", Type: "tool_call", Payload: map[string]any{
+			"toolCallId": "c2", "name": "calculator", "args": map[string]any{"expr": "2490000 + 4050000 + 360000"},
+		}},
+		{ID: "s5", Type: "tool_result", Payload: map[string]any{
+			"toolCallId": "c2", "output": 6900000,
+		}},
+		{ID: "s6", Type: "text", Text: "根據搜尋結果，台北市約 249 萬人、新北市約 405 萬人、基隆市約 36 萬人，北北基合計約 690 萬人。"},
+	}
+}
+
+func (s *SSEWriter) RunScenario(steps []Step, delay time.Duration) error {
+	for _, st := range steps {
+		switch st.Type {
+		case "thinking", "text":
+			for _, token := range tokenize(st.Text, 1) {
+				err := s.sendJSON(st.Type, map[string]any{"stepId": st.ID, "delta": token})
+				if err != nil {
+					return err
+				}
+				if err := sleep(s.ctx, delay); err != nil {
+					return err
+				}
+			}
+		case "tool_call", "tool_result":
+			payload := map[string]any{"stepId": st.ID}
+			maps.Copy(payload, st.Payload)
+			if err := s.sendJSON(st.Type, payload); err != nil {
+				return err
+			}
+			if err := sleep(s.ctx, toolDelay); err != nil {
+				return err
+			}
 		}
 	}
-	sseEvent := SSEEvent{
-		ID:    strconv.Itoa(len(tokens)),
-		Event: "done",
-		Data:  "finish!",
-	}
-	return s.send(sseEvent)
+	return s.sendJSON("done", map[string]any{})
 }
 
 func handleSSEOption(w http.ResponseWriter, r *http.Request) {
@@ -139,19 +189,24 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	rc.Flush()
 
-	ctx := r.Context()
 	sseWriter := &SSEWriter{
-		ctx: ctx,
+		ctx: r.Context(),
 		w:   w,
 		rc:  rc,
 	}
-	message := fmt.Sprintf("收到的訊息 : %s", req.Message)
 
-	err = sseWriter.SendAgentStep("message", message, 80*time.Millisecond)
+	err = sseWriter.RunScenario(buildScenario(req.Message), 40*time.Millisecond)
 	if err != nil {
-		w.Write([]byte(fmt.Sprintf("event: error\ndata: %s\n\n", err.Error())))
-		rc.Flush()
-		return
+		// 使用者取消時連線已斷，不再寫入
+		if errors.Is(err, context.Canceled) {
+			log.Println("使用者取消")
+			return
+		}
+		sseWriter.sendJSON("error", map[string]any{
+			"stepId":    "server-error",
+			"message":   err.Error(),
+			"retryable": false,
+		})
 	}
 }
 
