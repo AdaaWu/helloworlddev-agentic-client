@@ -1,5 +1,11 @@
 <script setup lang="ts">
+import { shallowRef } from 'vue';
+
 const API_BASE = 'http://localhost:8081';
+
+interface SSERequest {
+  message: string
+}
 
 interface EventOpts {
   onMessage?: (payload: string) => void
@@ -31,6 +37,8 @@ type ResultOptions =
   { field: 'event', value: string} |
   { field: 'data', value: string, dataList: string[] } |
   { field: 'retry', value: string};
+
+const inputMessage = shallowRef('');
 
 const isEvent = (input: unknown): input is EventStatus => {
   return eventStatusList.some(item => item === input);
@@ -109,11 +117,17 @@ const handleEvent = (textList: string[], opts: EventOpts): void => {
 }
 
 const startEvent = async (opts: EventOpts): Promise<void> => {
+  if (!inputMessage.value.trim()) return;
+  const req: SSERequest = {
+    message: inputMessage.value,
+  }
   const response = await fetch(`${API_BASE}/sse`, {
     method: 'POST',
     headers: {
       'Accept': 'text/event-stream',
-    }
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(req),
   });
   if (!response.ok) {
     console.log('不 okay');
@@ -139,10 +153,12 @@ const startEvent = async (opts: EventOpts): Promise<void> => {
     }
   } finally {
     reader.releaseLock();
+    inputMessage.value = '';
   }
 }
 
 const handleClick = async (): Promise<void> => {
+  if (!inputMessage.value.trim()) return;
   const opts: EventOpts = {
     onMessage: (payload: string) => {
       console.log('收到的訊息 :', payload);
@@ -153,5 +169,6 @@ const handleClick = async (): Promise<void> => {
 </script>
 
 <template>
-  <button @click="handleClick">發射！！</button>
+  <textarea v-model="inputMessage"></textarea>
+  <button @click="handleClick">送出</button>
 </template>
