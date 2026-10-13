@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 )
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -19,10 +20,40 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleSSE(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	rc := http.NewResponseController(w)
+	w.WriteHeader(http.StatusOK)
+	rc.Flush()
+
+	ctx := r.Context()
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("使用者斷開")
+			return
+		case t := <-ticker.C:
+			rawMessage := t.Format(time.RFC3339)
+			message := fmt.Sprintf("event: message\ndata: %s\n\n", rawMessage)
+			w.Write([]byte(message))
+			rc.Flush()
+		}
+	}
+}
+
 func main() {
 	router := http.NewServeMux()
 	router.HandleFunc("GET /{$}", handleRoot)
-	fmt.Println("run on http://localhost:8081")
+	router.HandleFunc("GET /sse", handleSSE)
+	fmt.Println("run on http://localhost:8081/sse")
 	server := &http.Server{
 		Addr:    ":8081",
 		Handler: router,
