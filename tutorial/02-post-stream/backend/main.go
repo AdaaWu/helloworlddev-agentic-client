@@ -27,7 +27,10 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 type SSERequest struct {
-	Message string `json:"message"`
+	Message  string `json:"message"`
+	Scenario string `json:"scenario"`
+	// fast 模擬 LLM 爆發輸出，用來展示前端 16ms throttle
+	Speed string `json:"speed"`
 }
 
 type SSEEvent struct {
@@ -118,23 +121,51 @@ type Step struct {
 // 模擬工具執行時間，前端 spinner 才看得到
 const toolDelay = 800 * time.Millisecond
 
-func buildScenario(message string) []Step {
-	return []Step{
-		{ID: "s1", Type: "thinking", Text: fmt.Sprintf("使用者說：「%s」。我先搜尋北北基的人口，再用計算機加總。", message)},
-		{ID: "s2", Type: "tool_call", Payload: map[string]any{
-			"toolCallId": "c1", "name": "search", "args": map[string]any{"q": "北北基 人口"},
-		}},
-		{ID: "s3", Type: "tool_result", Payload: map[string]any{
-			"toolCallId": "c1", "output": map[string]any{"台北市": 2490000, "新北市": 4050000, "基隆市": 360000},
-		}},
-		{ID: "s4", Type: "tool_call", Payload: map[string]any{
-			"toolCallId": "c2", "name": "calculator", "args": map[string]any{"expr": "2490000 + 4050000 + 360000"},
-		}},
-		{ID: "s5", Type: "tool_result", Payload: map[string]any{
-			"toolCallId": "c2", "output": 6900000,
-		}},
-		{ID: "s6", Type: "text", Text: "根據搜尋結果，台北市約 249 萬人、新北市約 405 萬人、基隆市約 36 萬人，北北基合計約 690 萬人。"},
+func buildScenario(name, message string) ([]Step, bool) {
+	switch name {
+	case "search_and_calc":
+		return []Step{
+			{ID: "s1", Type: "thinking", Text: fmt.Sprintf("使用者說：「%s」。我先搜尋北北基的人口，再用計算機加總。", message)},
+			{ID: "s2", Type: "tool_call", Payload: map[string]any{
+				"toolCallId": "c1", "name": "search", "args": map[string]any{"q": "北北基 人口"},
+			}},
+			{ID: "s3", Type: "tool_result", Payload: map[string]any{
+				"toolCallId": "c1", "output": map[string]any{"台北市": 2490000, "新北市": 4050000, "基隆市": 360000},
+			}},
+			{ID: "s4", Type: "tool_call", Payload: map[string]any{
+				"toolCallId": "c2", "name": "calculator", "args": map[string]any{"expr": "2490000 + 4050000 + 360000"},
+			}},
+			{ID: "s5", Type: "tool_result", Payload: map[string]any{
+				"toolCallId": "c2", "output": 6900000,
+			}},
+			{ID: "s6", Type: "text", Text: "根據搜尋結果，台北市約 249 萬人、新北市約 405 萬人、基隆市約 36 萬人，北北基合計約 690 萬人。"},
+		}, true
+	case "multi_tool":
+		// 結果回來的順序與呼叫順序不同，前端要用 toolCallId 配對
+		return []Step{
+			{ID: "s1", Type: "thinking", Text: fmt.Sprintf("使用者說：「%s」。我同時查天氣、新聞和股價，整理成一份早報。", message)},
+			{ID: "s2", Type: "tool_call", Payload: map[string]any{
+				"toolCallId": "c1", "name": "weather", "args": map[string]any{"city": "台北"},
+			}},
+			{ID: "s3", Type: "tool_call", Payload: map[string]any{
+				"toolCallId": "c2", "name": "news", "args": map[string]any{"topic": "科技", "limit": 2},
+			}},
+			{ID: "s4", Type: "tool_call", Payload: map[string]any{
+				"toolCallId": "c3", "name": "stock", "args": map[string]any{"symbol": "2330.TW"},
+			}},
+			{ID: "s5", Type: "tool_result", Payload: map[string]any{
+				"toolCallId": "c2", "output": []string{"AI Agent 前端框架持續升溫", "Vue 3.5 效能更新"},
+			}},
+			{ID: "s6", Type: "tool_result", Payload: map[string]any{
+				"toolCallId": "c1", "output": map[string]any{"temp": 26, "weather": "多雲"},
+			}},
+			{ID: "s7", Type: "tool_result", Payload: map[string]any{
+				"toolCallId": "c3", "output": map[string]any{"price": 1085, "change": "+1.2%"},
+			}},
+			{ID: "s8", Type: "text", Text: "早安！台北今天多雲、約 26 度。科技新聞：AI Agent 前端框架持續升溫、Vue 3.5 效能更新。台積電目前 1085 元，上漲 1.2%。"},
+		}, true
 	}
+	return nil, false
 }
 
 func (s *SSEWriter) RunScenario(steps []Step, delay time.Duration) error {
@@ -180,6 +211,20 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	if req.Scenario == "" {
+		req.Scenario = "search_and_calc"
+	}
+	// 開串流前驗證，錯誤才能用 HTTP status 回應
+	steps, ok := buildScenario(req.Scenario, req.Message)
+	if !ok {
+		http.Error(w, "unknown scenario: "+req.Scenario, http.StatusBadRequest)
+		return
+	}
+	delay := 40 * time.Millisecond
+	if req.Speed == "fast" {
+		delay = 2 * time.Millisecond
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -195,11 +240,11 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 		rc:  rc,
 	}
 
-	err = sseWriter.RunScenario(buildScenario(req.Message), 40*time.Millisecond)
+	err = sseWriter.RunScenario(steps, delay)
 	if err != nil {
 		// 使用者取消時連線已斷，不再寫入
 		if errors.Is(err, context.Canceled) {
-			log.Println("使用者取消")
+			log.Printf("使用者取消 (scenario=%s)\n", req.Scenario)
 			return
 		}
 		sseWriter.sendJSON("error", map[string]any{
